@@ -23,6 +23,11 @@
     border-radius: 8px;
   }
 
+  .canvas-wrapper {
+    position: relative;
+    transform-origin: top left;
+  }
+
   
   .canvas-container-original {
     position: relative;

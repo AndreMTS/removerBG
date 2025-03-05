@@ -1,4 +1,3 @@
-
 class BackgroundRemover {
   constructor() {
     this.initializeElements();
@@ -7,6 +6,11 @@ class BackgroundRemover {
     this.baseWidth = 0;
     this.baseHeight = 0;
     this.image = new Image();
+    this.zoomLevel = 1;
+    this.isDragging = false;
+    this.lastX = 0;
+    this.lastY = 0;
+    this.brushSize = 10; // Tamanho do pincel para remoção mais precisa
   }
 
   initializeElements() {
@@ -20,6 +24,8 @@ class BackgroundRemover {
     this.editCanvas = document.getElementById("editCanvas");
     this.editPreviewCanvas = document.getElementById("editPreviewCanvas");
     this.message = document.getElementById("message");
+    this.zoomInput = document.getElementById("zoom");
+    this.zoomValue = document.getElementById("zoomValue");
 
     this.originalCtx = this.originalCanvas.getContext("2d");
     this.editCtx = this.editCanvas.getContext("2d");
@@ -37,6 +43,10 @@ class BackgroundRemover {
     this.undoBtn.addEventListener("click", this.undoLastAction.bind(this));
     this.resetBtn.addEventListener("click", this.resetImage.bind(this));
     this.exportBtn.addEventListener("click", this.exportImage.bind(this));
+    this.zoomInput.addEventListener("input", this.handleZoom.bind(this));
+    this.editCanvas.addEventListener("mousedown", this.handleMouseDown.bind(this));
+    this.editCanvas.addEventListener("mouseup", this.handleMouseUp.bind(this));
+    this.editCanvas.addEventListener("wheel", this.handleWheel.bind(this));
   }
 
   handleImageUpload(event) {
@@ -79,6 +89,21 @@ class BackgroundRemover {
     this.editCtx.drawImage(this.image, 0, 0, editWidth, editHeight);
     this.saveState();
     this.message.textContent = "Click on the editable image to remove areas!";
+
+    // Criar um wrapper para os canvas de edição
+    const container = document.querySelector('.canvas-container');
+    const wrapper = document.createElement('div');
+    wrapper.className = 'canvas-wrapper';
+    
+    // Remover os canvas do container
+    container.innerHTML = '';
+    
+    // Adicionar os canvas ao wrapper
+    wrapper.appendChild(this.editCanvas);
+    wrapper.appendChild(this.editPreviewCanvas);
+    
+    // Adicionar o wrapper ao container
+    container.appendChild(wrapper);
   }
 
   saveState() {
@@ -107,10 +132,13 @@ class BackgroundRemover {
 
     if (targetColor.a === 0) return;
 
+    // Usar um algoritmo de flood fill mais eficiente
     const stack = [[x, y]];
     const visited = new Set();
+    const maxPixels = 500000; // Limitar para evitar stack overflow
+    let pixelCount = 0;
 
-    while (stack.length > 0) {
+    while (stack.length > 0 && pixelCount < maxPixels) {
       const [currentX, currentY] = stack.pop();
       const index = (currentY * width + currentX) * 4;
 
@@ -121,6 +149,7 @@ class BackgroundRemover {
       ) continue;
 
       visited.add(index);
+      pixelCount++;
 
       const r = pixels[index];
       const g = pixels[index + 1];
@@ -134,10 +163,20 @@ class BackgroundRemover {
         a > 0
       ) {
         pixels[index + 3] = 0;
-        stack.push([currentX + 1, currentY]);
-        stack.push([currentX - 1, currentY]);
-        stack.push([currentX, currentY + 1]);
-        stack.push([currentX, currentY - 1]);
+        
+        // Adicionar pixels vizinhos à pilha
+        if (pixelCount < maxPixels) {
+          stack.push([currentX + 1, currentY]);
+          stack.push([currentX - 1, currentY]);
+          stack.push([currentX, currentY + 1]);
+          stack.push([currentX, currentY - 1]);
+          
+          // Adicionar diagonais para melhor preenchimento
+          stack.push([currentX + 1, currentY + 1]);
+          stack.push([currentX - 1, currentY - 1]);
+          stack.push([currentX + 1, currentY - 1]);
+          stack.push([currentX - 1, currentY + 1]);
+        }
       }
     }
 
@@ -148,10 +187,21 @@ class BackgroundRemover {
     if (!this.image.src || this.image.src === location.href) return;
 
     const rect = this.editCanvas.getBoundingClientRect();
-    const x = Math.floor(event.clientX - rect.left);
-    const y = Math.floor(event.clientY - rect.top);
-    const tolerance = parseInt(this.toleranceInput.value);
+    const x = Math.floor((event.clientX - rect.left) / this.zoomLevel);
+    const y = Math.floor((event.clientY - rect.top) / this.zoomLevel);
+    
+    // Se estiver arrastando, continue removendo o fundo
+    if (this.isDragging) {
+      this.floodFill(x, y, parseInt(this.toleranceInput.value));
+      return;
+    }
+    
+    this.showPreview(x, y);
+  }
 
+  showPreview(x, y) {
+    const tolerance = parseInt(this.toleranceInput.value);
+    
     this.editPreviewCtx.clearRect(0, 0, this.editPreviewCanvas.width, this.editPreviewCanvas.height);
     const imgData = this.editCtx.getImageData(0, 0, this.editCanvas.width, this.editCanvas.height);
     const previewData = this.editPreviewCtx.createImageData(imgData.width, imgData.height);
@@ -168,10 +218,13 @@ class BackgroundRemover {
       b: pixels[targetIndex + 2]
     };
 
+    // Usar um algoritmo de flood fill mais eficiente para o preview
     const stack = [[x, y]];
     const visited = new Set();
+    const maxPixels = 100000; // Limitar o número de pixels para melhor desempenho
+    let pixelCount = 0;
 
-    while (stack.length > 0) {
+    while (stack.length > 0 && pixelCount < maxPixels) {
       const [currentX, currentY] = stack.pop();
       const index = (currentY * width + currentX) * 4;
 
@@ -182,6 +235,7 @@ class BackgroundRemover {
       ) continue;
 
       visited.add(index);
+      pixelCount++;
 
       const r = pixels[index];
       const g = pixels[index + 1];
@@ -198,10 +252,14 @@ class BackgroundRemover {
         previewPixels[index + 1] = 0;
         previewPixels[index + 2] = 0;
         previewPixels[index + 3] = 128;
-        stack.push([currentX + 1, currentY]);
-        stack.push([currentX - 1, currentY]);
-        stack.push([currentX, currentY + 1]);
-        stack.push([currentX, currentY - 1]);
+        
+        // Adicionar pixels vizinhos à pilha
+        if (pixelCount < maxPixels) {
+          stack.push([currentX + 1, currentY]);
+          stack.push([currentX - 1, currentY]);
+          stack.push([currentX, currentY + 1]);
+          stack.push([currentX, currentY - 1]);
+        }
       }
     }
 
@@ -216,15 +274,15 @@ class BackgroundRemover {
     if (!this.image.src || this.image.src === location.href) return;
 
     const rect = this.editCanvas.getBoundingClientRect();
-    const x = Math.floor(event.clientX - rect.left);
-    const y = Math.floor(event.clientY - rect.top);
+    const x = Math.floor((event.clientX - rect.left) / this.zoomLevel);
+    const y = Math.floor((event.clientY - rect.top) / this.zoomLevel);
     const tolerance = parseInt(this.toleranceInput.value);
 
     if (x < 0 || x >= this.editCanvas.width || y < 0 || y >= this.editCanvas.height) return;
 
     this.saveState();
     this.floodFill(x, y, tolerance);
-    this.message.textContent = "Area removed!";
+    this.message.textContent = "Área removida!";
     this.editPreviewCtx.clearRect(0, 0, this.editPreviewCanvas.width, this.editPreviewCanvas.height);
   }
 
@@ -266,6 +324,49 @@ class BackgroundRemover {
     link.href = exportCanvas.toDataURL("image/png");
     link.click();
     this.message.textContent = "Image exported as PNG!";
+  }
+
+  handleZoom() {
+    this.zoomLevel = parseInt(this.zoomInput.value) / 100;
+    this.zoomValue.textContent = this.zoomInput.value;
+    this.applyZoom();
+  }
+
+  applyZoom() {
+    const wrapper = document.querySelector('.canvas-wrapper');
+    if (wrapper) {
+      wrapper.style.transform = `scale(${this.zoomLevel})`;
+    }
+  }
+
+  handleWheel(event) {
+    event.preventDefault();
+    if (event.deltaY < 0) {
+      // Zoom in
+      this.zoomLevel = Math.min(this.zoomLevel + 0.1, 4);
+    } else {
+      // Zoom out
+      this.zoomLevel = Math.max(this.zoomLevel - 0.1, 1);
+    }
+    this.zoomInput.value = Math.round(this.zoomLevel * 100);
+    this.zoomValue.textContent = this.zoomInput.value;
+    this.applyZoom();
+  }
+
+  handleMouseDown(event) {
+    if (!this.image.src || this.image.src === location.href) return;
+    
+    const rect = this.editCanvas.getBoundingClientRect();
+    this.lastX = event.clientX - rect.left;
+    this.lastY = event.clientY - rect.top;
+    this.isDragging = true;
+    
+    // Aplicar remoção de fundo no clique
+    this.handleCanvasClick(event);
+  }
+
+  handleMouseUp() {
+    this.isDragging = false;
   }
 
   // Initialize the app
