@@ -2,6 +2,8 @@
 
 # Removedor de Fundo de Imagens
 
+<img src="/assets/demoRemoverBG.gif">
+
 ## Descrição
 
 O Removedor de Fundo é uma aplicação web simples e intuitiva que permite aos usuários remover facilmente o fundo de imagens sem a necessidade de software especializado ou conhecimentos avançados de edição de imagem. Desenvolvido com JavaScript puro, HTML5 e CSS3.
