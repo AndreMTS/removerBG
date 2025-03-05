@@ -74,3 +74,17 @@
   .btn-custom:hover {
     transform: scale(1.05);
   }
+
+  @media (max-width: 768px) {
+    .canvas-container {
+      height: 400px;
+    }
+    
+    .canvas-container-original {
+      height: 150px;
+    }
+    
+    .btn-custom {
+      margin-bottom: 10px;
+    }
+  }

@@ -10,7 +10,9 @@ class BackgroundRemover {
     this.isDragging = false;
     this.lastX = 0;
     this.lastY = 0;
-    this.brushSize = 10; // Tamanho do pincel para remoção mais precisa
+    this.brushSize = 20; // Tamanho do pincel para remoção mais precisa
+    this.brushMode = false; // Modo de pincel manual
+    this.historyIndex = 0;
   }
 
   initializeElements() {
@@ -26,6 +28,9 @@ class BackgroundRemover {
     this.message = document.getElementById("message");
     this.zoomInput = document.getElementById("zoom");
     this.zoomValue = document.getElementById("zoomValue");
+    this.brushModeBtn = document.getElementById("brushMode");
+    this.brushSizeInput = document.getElementById("brushSize");
+    this.brushSizeValue = document.getElementById("brushSizeValue");
 
     this.originalCtx = this.originalCanvas.getContext("2d");
     this.editCtx = this.editCanvas.getContext("2d");
@@ -47,6 +52,32 @@ class BackgroundRemover {
     this.editCanvas.addEventListener("mousedown", this.handleMouseDown.bind(this));
     this.editCanvas.addEventListener("mouseup", this.handleMouseUp.bind(this));
     this.editCanvas.addEventListener("wheel", this.handleWheel.bind(this));
+    this.brushModeBtn.addEventListener("click", this.toggleBrushMode.bind(this));
+    this.brushSizeInput.addEventListener("input", this.handleBrushSizeChange.bind(this));
+    
+    // Adicionar suporte para arrastar e soltar
+    const container = document.querySelector('.container');
+    container.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      container.classList.add('drag-over');
+    });
+    
+    container.addEventListener('dragleave', () => {
+      container.classList.remove('drag-over');
+    });
+    
+    container.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      container.classList.remove('drag-over');
+      
+      if (e.dataTransfer.files.length) {
+        this.upload.files = e.dataTransfer.files;
+        const event = new Event('change');
+        this.upload.dispatchEvent(event);
+      }
+    });
   }
 
   handleImageUpload(event) {
@@ -112,8 +143,19 @@ class BackgroundRemover {
     tempCanvas.height = this.editCanvas.height;
     const tempCtx = tempCanvas.getContext("2d");
     tempCtx.drawImage(this.editCanvas, 0, 0);
+    
+    // Remover estados futuros se estiver no meio do histórico
+    if (this.historyIndex < this.history.length - 1) {
+      this.history = this.history.slice(0, this.historyIndex + 1);
+    }
+    
     this.history.push(tempCanvas.toDataURL());
-    if (this.history.length > 10) this.history.shift();
+    this.historyIndex = this.history.length - 1;
+    
+    if (this.history.length > 20) {
+      this.history.shift();
+      this.historyIndex--;
+    }
   }
 
   floodFill(x, y, tolerance) {
@@ -138,49 +180,70 @@ class BackgroundRemover {
     const maxPixels = 500000; // Limitar para evitar stack overflow
     let pixelCount = 0;
 
-    while (stack.length > 0 && pixelCount < maxPixels) {
-      const [currentX, currentY] = stack.pop();
-      const index = (currentY * width + currentX) * 4;
+    // Mostrar indicador de progresso
+    this.message.textContent = "Processando...";
+    
+    // Usar requestAnimationFrame para não bloquear a interface
+    const processChunk = () => {
+      const startTime = performance.now();
+      const maxTime = 50; // ms
+      
+      while (stack.length > 0 && pixelCount < maxPixels) {
+        const [currentX, currentY] = stack.pop();
+        const index = (currentY * width + currentX) * 4;
 
-      if (
-        currentX < 0 || currentX >= width ||
-        currentY < 0 || currentY >= height ||
-        visited.has(index)
-      ) continue;
+        if (
+          currentX < 0 || currentX >= width ||
+          currentY < 0 || currentY >= height ||
+          visited.has(index)
+        ) continue;
 
-      visited.add(index);
-      pixelCount++;
+        visited.add(index);
+        pixelCount++;
 
-      const r = pixels[index];
-      const g = pixels[index + 1];
-      const b = pixels[index + 2];
-      const a = pixels[index + 3];
+        const r = pixels[index];
+        const g = pixels[index + 1];
+        const b = pixels[index + 2];
+        const a = pixels[index + 3];
 
-      if (
-        Math.abs(r - targetColor.r) <= tolerance &&
-        Math.abs(g - targetColor.g) <= tolerance &&
-        Math.abs(b - targetColor.b) <= tolerance &&
-        a > 0
-      ) {
-        pixels[index + 3] = 0;
-        
-        // Adicionar pixels vizinhos à pilha
-        if (pixelCount < maxPixels) {
-          stack.push([currentX + 1, currentY]);
-          stack.push([currentX - 1, currentY]);
-          stack.push([currentX, currentY + 1]);
-          stack.push([currentX, currentY - 1]);
+        if (
+          Math.abs(r - targetColor.r) <= tolerance &&
+          Math.abs(g - targetColor.g) <= tolerance &&
+          Math.abs(b - targetColor.b) <= tolerance &&
+          a > 0
+        ) {
+          pixels[index + 3] = 0;
           
-          // Adicionar diagonais para melhor preenchimento
-          stack.push([currentX + 1, currentY + 1]);
-          stack.push([currentX - 1, currentY - 1]);
-          stack.push([currentX + 1, currentY - 1]);
-          stack.push([currentX - 1, currentY + 1]);
+          // Adicionar pixels vizinhos à pilha
+          if (pixelCount < maxPixels) {
+            stack.push([currentX + 1, currentY]);
+            stack.push([currentX - 1, currentY]);
+            stack.push([currentX, currentY + 1]);
+            stack.push([currentX, currentY - 1]);
+            
+            // Adicionar diagonais para melhor preenchimento
+            stack.push([currentX + 1, currentY + 1]);
+            stack.push([currentX - 1, currentY - 1]);
+            stack.push([currentX + 1, currentY - 1]);
+            stack.push([currentX - 1, currentY + 1]);
+          }
+        }
+        
+        // Verificar se já passou tempo suficiente
+        if (performance.now() - startTime > maxTime) {
+          // Atualizar progresso
+          this.message.textContent = `Processando... ${Math.round((pixelCount / maxPixels) * 100)}%`;
+          requestAnimationFrame(processChunk);
+          return;
         }
       }
-    }
-
-    this.editCtx.putImageData(imgData, 0, 0);
+      
+      // Finalizar
+      this.editCtx.putImageData(imgData, 0, 0);
+      this.message.textContent = "Área removida!";
+    };
+    
+    requestAnimationFrame(processChunk);
   }
 
   handleMouseMove(event) {
@@ -190,13 +253,24 @@ class BackgroundRemover {
     const x = Math.floor((event.clientX - rect.left) / this.zoomLevel);
     const y = Math.floor((event.clientY - rect.top) / this.zoomLevel);
     
-    // Se estiver arrastando, continue removendo o fundo
-    if (this.isDragging) {
+    // Se estiver arrastando no modo pincel, remova pixels diretamente
+    if (this.isDragging && this.brushMode) {
+      this.applyBrush(x, y);
+      return;
+    }
+    
+    // Se estiver arrastando no modo mágico, use flood fill
+    if (this.isDragging && !this.brushMode) {
       this.floodFill(x, y, parseInt(this.toleranceInput.value));
       return;
     }
     
-    this.showPreview(x, y);
+    // Mostrar preview
+    if (this.brushMode) {
+      this.showBrushPreview(x, y);
+    } else {
+      this.showPreview(x, y);
+    }
   }
 
   showPreview(x, y) {
@@ -287,18 +361,32 @@ class BackgroundRemover {
   }
 
   undoLastAction() {
-    if (this.history.length > 1) {
-      this.history.pop();
-      const lastState = new Image();
-      lastState.onload = () => {
-        this.editCtx.clearRect(0, 0, this.editCanvas.width, this.editCanvas.height);
-        this.editCtx.drawImage(lastState, 0, 0);
-        this.message.textContent = "Last action undone!";
-      };
-      lastState.src = this.history[this.history.length - 1];
+    if (this.historyIndex > 0) {
+      this.historyIndex--;
+      this.loadState(this.historyIndex);
+      this.message.textContent = "Ação anterior desfeita!";
     } else {
-      this.message.textContent = "Nothing to undo!";
+      this.message.textContent = "Nada para desfazer!";
     }
+  }
+
+  redoAction() {
+    if (this.historyIndex < this.history.length - 1) {
+      this.historyIndex++;
+      this.loadState(this.historyIndex);
+      this.message.textContent = "Ação refeita!";
+    } else {
+      this.message.textContent = "Nada para refazer!";
+    }
+  }
+
+  loadState(index) {
+    const state = new Image();
+    state.onload = () => {
+      this.editCtx.clearRect(0, 0, this.editCanvas.width, this.editCanvas.height);
+      this.editCtx.drawImage(state, 0, 0);
+    };
+    state.src = this.history[index];
   }
 
   resetImage() {
@@ -311,19 +399,21 @@ class BackgroundRemover {
 
   exportImage() {
     if (!this.image.src || this.image.src === location.href) {
-      this.message.textContent = "No image to export!";
+      this.message.textContent = "Nenhuma imagem para exportar!";
       return;
     }
+    
     const exportCanvas = document.createElement("canvas");
     exportCanvas.width = this.editCanvas.width;
     exportCanvas.height = this.editCanvas.height;
     const exportCtx = exportCanvas.getContext("2d");
     exportCtx.drawImage(this.editCanvas, 0, 0);
+    
     const link = document.createElement("a");
     link.download = "transparent_image.png";
     link.href = exportCanvas.toDataURL("image/png");
     link.click();
-    this.message.textContent = "Image exported as PNG!";
+    this.message.textContent = "Imagem exportada como PNG!";
   }
 
   handleZoom() {
@@ -367,6 +457,56 @@ class BackgroundRemover {
 
   handleMouseUp() {
     this.isDragging = false;
+  }
+
+  toggleBrushMode() {
+    this.brushMode = !this.brushMode;
+    if (this.brushMode) {
+      this.message.textContent = "Modo pincel ativado. Arraste para remover áreas manualmente.";
+      this.brushModeBtn.classList.add('active');
+    } else {
+      this.message.textContent = "Modo mágico ativado. Clique para remover áreas automaticamente.";
+      this.brushModeBtn.classList.remove('active');
+    }
+  }
+
+  applyBrush(x, y) {
+    const imgData = this.editCtx.getImageData(0, 0, this.editCanvas.width, this.editCanvas.height);
+    const pixels = imgData.data;
+    const width = this.editCanvas.width;
+    
+    for (let i = -this.brushSize; i <= this.brushSize; i++) {
+      for (let j = -this.brushSize; j <= this.brushSize; j++) {
+        const currentX = x + i;
+        const currentY = y + j;
+        
+        // Verificar se está dentro do círculo do pincel
+        if (i*i + j*j <= this.brushSize*this.brushSize) {
+          if (
+            currentX >= 0 && currentX < width &&
+            currentY >= 0 && currentY < this.editCanvas.height
+          ) {
+            const index = (currentY * width + currentX) * 4;
+            pixels[index + 3] = 0; // Tornar transparente
+          }
+        }
+      }
+    }
+    
+    this.editCtx.putImageData(imgData, 0, 0);
+  }
+
+  showBrushPreview(x, y) {
+    this.editPreviewCtx.clearRect(0, 0, this.editPreviewCanvas.width, this.editPreviewCanvas.height);
+    this.editPreviewCtx.beginPath();
+    this.editPreviewCtx.arc(x, y, this.brushSize, 0, Math.PI * 2);
+    this.editPreviewCtx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+    this.editPreviewCtx.fill();
+  }
+
+  handleBrushSizeChange() {
+    this.brushSize = parseInt(this.brushSizeInput.value);
+    this.brushSizeValue.textContent = this.brushSize;
   }
 
   // Initialize the app

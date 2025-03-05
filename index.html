@@ -30,23 +30,30 @@
     </div>
 
     <div class="row justify-content-center mb-3">
-      <div class="col-md-4">
+      <div class="col-md-3">
         <div class="range-container">
           <label for="tolerance">Tolerância: <span id="toleranceValue">90</span></label>
           <input type="range" id="tolerance" min="0" max="100" value="90" class="form-range" />
         </div>
       </div>
-      <div class="col-md-4">
+      <div class="col-md-3">
         <div class="range-container">
           <label for="zoom">Zoom: <span id="zoomValue">100</span>%</label>
           <input type="range" id="zoom" min="100" max="400" value="100" step="10" class="form-range" />
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="range-container">
+          <label for="brushSize">Tamanho do Pincel: <span id="brushSizeValue">20</span>px</label>
+          <input type="range" id="brushSize" min="1" max="50" value="20" class="form-range" />
         </div>
       </div>
     </div>
 
     <div class="row justify-content-center mb-3">
       <div class="col-md-6">
-        <button id="undo" class="btn btn-warning btn-custom me-2">anterior <i class="bi bi-arrow-return-left"></i></button>
+        <button id="brushMode" class="btn btn-info btn-custom me-2">Modo Pincel <i class="bi bi-brush"></i></button>
+        <button id="undo" class="btn btn-warning btn-custom me-2">Anterior <i class="bi bi-arrow-return-left"></i></button>
         <button id="reset" class="btn btn-danger btn-custom me-2">Resetar <i class="bi bi-arrow-clockwise"></i></button>
         <button id="export" class="btn btn-primary btn-custom">Exportar PNG <i class="bi bi-cloud-download"></i></button>
       </div>
